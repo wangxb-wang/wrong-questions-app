@@ -2,8 +2,8 @@
   "name": "错题集",
   "short_name": "错题集",
   "description": "孩子专属错题管理工具 - 拍照保存、答题攻克、正确率统计",
-  "start_url": "/wrong-questions-app.html",
-  "scope": "/",
+  "start_url": "./wrong-questions-app.html",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#534AB7",
@@ -11,13 +11,13 @@
   "lang": "zh-CN",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "./icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "./icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
