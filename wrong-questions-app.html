@@ -475,7 +475,7 @@ function markCorrect(id) {
   q.history.push({ time: Date.now(), correct: true });
   if (q.correctCount >= 3) {
     q.mastered = true;
-    q.solvedAt = q.solvedAt || Date.now(); /* Bug#10修复：首次掌握时记录时间，用于统计排序 */
+    q.solvedAt = Date.now(); /* Bug#10修复：记录掌握时间，用于统计排序 */
     showToast('太棒了！连续答对3次，已掌握 ✓');
   } else {
     showToast('答对了！还需再答对 ' + (3 - q.correctCount) + ' 次');
@@ -490,6 +490,7 @@ function markWrong(id) {
   if (!q || q.removed) return;
   q.correctCount = 0;
   q.mastered = false;
+  q.solvedAt = undefined; /* Bug#13修复：答错时重置solvedAt，重新掌握时用新时间戳 */
   q.history.push({ time: Date.now(), correct: false });
   showToast('没关系，继续加油！');
   saveData();
