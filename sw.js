@@ -1,11 +1,14 @@
 /* Service Worker for 错题集 PWA - Offline Support */
-const CACHE_NAME = 'wrong-questions-v1';
-const ASSETS_TO_CACHE = [
-  '/wrong-questions-app.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/apple-touch-icon.png'
+const CACHE_NAME = 'wrong-questions-v2';
+/* Auto-detect base path from SW location (supports subdirectory deployment) */
+var SW_PATH = self.location.pathname;
+var BASE = SW_PATH.replace(/\/sw\.js$/, '');
+var ASSETS_TO_CACHE = [
+  BASE + '/wrong-questions-app.html',
+  BASE + '/manifest.json',
+  BASE + '/icon-192.png',
+  BASE + '/icon-512.png',
+  BASE + '/apple-touch-icon.png'
 ];
 
 /* Install: cache core assets */
@@ -64,7 +67,7 @@ self.addEventListener('fetch', function(event) {
       }).catch(function() {
         /* Offline fallback - for navigation, return the app shell */
         if (event.request.mode === 'navigate') {
-          return caches.match('/wrong-questions-app.html');
+          return caches.match(BASE + '/wrong-questions-app.html');
         }
         return new Response('', { status: 408 });
       });
