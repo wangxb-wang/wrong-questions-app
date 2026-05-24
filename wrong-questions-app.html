@@ -495,12 +495,14 @@ function markWrong(id) {
   showToast('没关系，继续加油！');
   saveData();
   renderList();      /* Bug#5修复 */
+  updateHeaderSub(); /* Bug#14修复：答错后头部统计也需刷新 */
 }
 
 function deleteQuestion(id) {
   if (!confirm('确定要删除这道错题吗？')) return;
   questions = questions.filter(function(x) { return x.id !== id; });
   saveData(); renderList(); showToast('已删除');
+  updateHeaderSub(); /* Bug#16修复：删除后头部统计需刷新 */
 }
 
 function findQ(id) {
