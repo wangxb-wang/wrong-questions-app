@@ -446,7 +446,7 @@ function saveQuestion() {
   var q = {
     id: genId(), subject: subject, desc: desc, note: note,
     image: editingImageData,
-    correctCount: 0, removed: false,
+    correctCount: 0, removed: false, mastered: false,
     addedAt: Date.now(), history: []
   };
 
@@ -469,10 +469,13 @@ function saveQuestion() {
 function markCorrect(id) {
   var q = findQ(id);
   if (!q || q.removed) return;
+  /* Bug#11修复：已掌握的题目不再累加，避免误导 */
+  if (q.mastered) { showToast('这道题已掌握 ✓'); return; }
   q.correctCount++;
   q.history.push({ time: Date.now(), correct: true });
   if (q.correctCount >= 3) {
     q.mastered = true;
+    q.solvedAt = q.solvedAt || Date.now(); /* Bug#10修复：首次掌握时记录时间，用于统计排序 */
     showToast('太棒了！连续答对3次，已掌握 ✓');
   } else {
     showToast('答对了！还需再答对 ' + (3 - q.correctCount) + ' 次');
