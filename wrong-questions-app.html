@@ -6,9 +6,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#534AB7">
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
 <title>错题集</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -96,6 +96,13 @@ body {
 .correct-counter { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); display: inline-block; }
 .dot.filled { background: var(--success); }
+.mastered-badge {
+  font-size: 10px; padding: 2px 6px; border-radius: 8px;
+  background: var(--success-light); color: var(--success);
+  font-weight: 500; flex-shrink: 0;
+}
+.wq-card.mastered { border-color: var(--success); border-width: 1.5px; }
+.wq-card.mastered .wq-card-header { background: var(--success-light); }
 .wq-card-body { padding: 12px 14px; }
 .wq-desc { font-size: 13px; color: var(--text); margin-bottom: 8px; line-height: 1.5; word-break: break-word; }
 .wq-img-wrap { border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 8px; }
@@ -465,8 +472,8 @@ function markCorrect(id) {
   q.correctCount++;
   q.history.push({ time: Date.now(), correct: true });
   if (q.correctCount >= 3) {
-    q.removed = true; q.solvedAt = Date.now();
-    showToast('太棒了！连续答对3次，已攻克 🎉');
+    q.mastered = true;
+    showToast('太棒了！连续答对3次，已掌握 ✓');
   } else {
     showToast('答对了！还需再答对 ' + (3 - q.correctCount) + ' 次');
   }
@@ -479,6 +486,7 @@ function markWrong(id) {
   var q = findQ(id);
   if (!q || q.removed) return;
   q.correctCount = 0;
+  q.mastered = false;
   q.history.push({ time: Date.now(), correct: false });
   showToast('没关系，继续加油！');
   saveData();
@@ -523,9 +531,10 @@ function renderCard(q) {
   var imgHtml = q.image ? '<div class="wq-img-wrap"><img class="wq-img" src="' + q.image + '" alt="题目图片" data-action="view" data-id="' + q.id + '"></div>' : '';
   var descHtml = q.desc ? '<div class="wq-desc">' + escHtml(q.desc) + '</div>' : '';
   var noteHtml = q.note ? '<div class="wq-note">📝 ' + escHtml(q.note) + '</div>' : '';
-  return '<div class="wq-card" data-card-id="' + q.id + '">' +
+  return '<div class="wq-card' + (q.mastered ? ' mastered' : '') + '" data-card-id="' + q.id + '">' +
     '<div class="wq-card-header">' +
       '<span class="subject-badge" style="background:' + sc + '22;color:' + sc + ';border:1px solid ' + sc + '44;">' + escHtml(q.subject) + '</span>' +
+      (q.mastered ? '<span class="mastered-badge">✓ 已掌握</span>' : '') +
       '<div class="correct-counter">' + dots + '<span style="font-size:11px;color:var(--text-muted);margin-left:2px;">' + q.correctCount + '/3</span></div>' +
       '<span class="wq-date">' + formatDate(q.addedAt) + '</span>' +
     '</div>' +
@@ -595,7 +604,7 @@ function updateFilterBar() {
 /* ════════════════════ 统计 ════════════════════ */
 function renderStats() {
   var total = questions.length;
-  var solved = questions.filter(function(q) { return q.removed; }).length;
+  var solved = questions.filter(function(q) { return q.removed || q.mastered; }).length;
   var active = total - solved;
   var rate = total > 0 ? Math.round(solved / total * 100) : 0;
   document.getElementById('stat-active').textContent = active;
@@ -607,7 +616,7 @@ function renderStats() {
   questions.forEach(function(q) {
     if (!subjectMap[q.subject]) subjectMap[q.subject] = { total: 0, solved: 0 };
     subjectMap[q.subject].total++;
-    if (q.removed) subjectMap[q.subject].solved++;
+    if (q.removed || q.mastered) subjectMap[q.subject].solved++;
   });
   var chartEl = document.getElementById('subject-chart');
   var subjects = Object.keys(subjectMap);
@@ -628,7 +637,7 @@ function renderStats() {
     }).join('');
   }
 
-  var solvedItems = questions.filter(function(q) { return q.removed; });
+  var solvedItems = questions.filter(function(q) { return q.removed || q.mastered; });
   solvedItems.sort(function(a, b) { return (b.solvedAt || 0) - (a.solvedAt || 0); });
   solvedItems = solvedItems.slice(0, 10);
   var solvedEl = document.getElementById('solved-list');
@@ -667,7 +676,9 @@ function viewDetail(id) {
 
   /* Bug#5修复：弹窗内按钮用 data-action + 事件委托 */
   var actionHtml = '';
-  if (!q.removed) {
+  if (q.mastered) {
+    actionHtml = '<div class="removed-banner" style="background:var(--success-light);color:var(--success);">✓ 已掌握 · 连续答对 ' + q.correctCount + ' 次</div>';
+  } else if (!q.removed) {
     actionHtml = '<div style="display:flex;gap:8px;margin-top:16px;">' +
       '<button class="btn btn-success" style="flex:1;padding:12px;" data-modal-action="correct" data-id="' + q.id + '">✓ 答对了</button>' +
       '<button class="btn" style="flex:1;padding:12px;background:var(--danger-light);color:var(--danger);border-color:var(--danger);" data-modal-action="wrong" data-id="' + q.id + '">✗ 答错了</button>' +
@@ -739,7 +750,7 @@ function escAttr(s) {
 
 function updateHeaderSub() {
   var active = questions.filter(function(q) { return !q.removed; }).length;
-  var solved = questions.filter(function(q) { return q.removed; }).length;
+  var solved = questions.filter(function(q) { return q.removed || q.mastered; }).length;
   var el = document.getElementById('header-sub');
   if (active === 0 && solved === 0) el.textContent = '加油，攻克每一道难题！';
   else if (active === 0) el.textContent = '太厉害了！所有 ' + solved + ' 道题都已攻克 🎉';
@@ -795,7 +806,7 @@ init();
 
 /* 注册 Service Worker（PWA 离线支持） */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
+  navigator.serviceWorker.register('./sw.js')
     .then(function(reg) { console.log('SW registered'); })
     .catch(function(err) { console.log('SW registration failed:', err); });
 }
