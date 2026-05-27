@@ -402,7 +402,10 @@ function updateStorageBanner(hasError) {
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(questions));
-    updateStorageBanner(false);
+    /* Bug#27修复：成功后也检测存储水位，而非无条件隐藏横幅 */
+    var usedKB = getStorageUsageKB();
+    if (usedKB > 3072) updateStorageBanner(true);
+    else updateStorageBanner(false);
     return true;
   } catch(e) {
     updateStorageBanner(true);
@@ -455,7 +458,22 @@ function handleImage(e) {
       canvas.width = w; canvas.height = h;
       var ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      editingImageData = canvas.toDataURL('image/jpeg', 0.75);
+      /* Bug#29修复：toDataURL 可能在大Canvas上失败 */
+      try {
+        editingImageData = canvas.toDataURL('image/jpeg', 0.75);
+      } catch(ex) {
+        showToast('图片处理失败，请尝试更小的图片');
+        return;
+      }
+      /* Bug#28修复：压缩后立即预检存储是否足够 */
+      var newImgKB = Math.round(editingImageData.length * 2 / 1024);
+      var usedKB = getStorageUsageKB();
+      if (usedKB + newImgKB > 4600) {
+        var newStr = newImgKB >= 1024 ? (newImgKB / 1024).toFixed(1) + ' MB' : newImgKB + ' KB';
+        showToast('图片过大（' + newStr + '），存储空间不足，请先清理或使用更小的图片');
+        editingImageData = null;
+        return;
+      }
       showPreview(editingImageData);
     };
     img.onerror = function() { showToast('图片读取失败，请重试'); };
@@ -521,6 +539,7 @@ function markCorrect(id) {
   if (q.mastered) { showToast('这道题已掌握 ✓'); return; }
   q.correctCount++;
   q.history.push({ time: Date.now(), correct: true });
+  if (q.history.length > 50) q.history = q.history.slice(-50); /* Bug#24修复：history最多保留50条，避免无限膨胀 */
   if (q.correctCount >= 3) {
     q.mastered = true;
     q.solvedAt = Date.now(); /* Bug#10修复：记录掌握时间，用于统计排序 */
@@ -540,6 +559,7 @@ function markWrong(id) {
   q.mastered = false;
   q.solvedAt = undefined; /* Bug#13修复：答错时重置solvedAt，重新掌握时用新时间戳 */
   q.history.push({ time: Date.now(), correct: false });
+  if (q.history.length > 50) q.history = q.history.slice(-50); /* Bug#24修复：history最多保留50条 */
   showToast('没关系，继续加油！');
   saveData();
   renderList();      /* Bug#5修复 */
@@ -818,34 +838,49 @@ function fixHeaderHeight() {
 
 /* ════════════════════ 存储清理工具（Bug#20修复）════════════════════ */
 /* 仅清理已掌握题目的图片，保留题目本身 */
+/* Bug#25修复：saveData失败时回滚图片数据 */
 function cleanMasteredImages() {
   var count = 0;
+  var backups = [];
   questions.forEach(function(q) {
     if ((q.mastered || q.removed) && q.image) {
+      backups.push({ q: q, image: q.image });
       q.image = null;
       count++;
     }
   });
   if (count === 0) { showToast('已掌握题目中没有图片可清理'); return; }
   var ok = saveData();
-  if (ok) {
-    renderList();
-    showToast('已清理 ' + count + ' 张图片，存储空间已释放 ✓');
+  if (!ok) {
+    backups.forEach(function(b) { b.q.image = b.image; });
+    showToast('清理失败，存储空间仍然不足');
+    return;
   }
+  renderList();
+  /* Bug#27修复：清理后重新检测存储水位，若仍接近满则保持横幅 */
+  if (getStorageUsageKB() > 3072) updateStorageBanner(true);
+  showToast('已清理 ' + count + ' 张图片，存储空间已释放 ✓');
 }
 
 /* 删除所有已掌握题目 */
+/* Bug#26修复：saveData失败时回滚整个数组 */
 function deleteMasteredQuestions() {
   var count = questions.filter(function(q) { return q.mastered || q.removed; }).length;
   if (count === 0) { showToast('没有已掌握的题目'); return; }
   if (!confirm('确定删除全部 ' + count + ' 道已掌握题目？此操作不可恢复。')) return;
+  var backup = questions.slice();
   questions = questions.filter(function(q) { return !q.mastered && !q.removed; });
   var ok = saveData();
-  if (ok) {
-    renderList();
-    updateHeaderSub();
-    showToast('已删除 ' + count + ' 道已掌握题目 ✓');
+  if (!ok) {
+    questions = backup;
+    showToast('删除失败，存储空间仍然不足');
+    return;
   }
+  renderList();
+  updateHeaderSub();
+  /* Bug#27修复：删除后重新检测存储水位 */
+  if (getStorageUsageKB() > 3072) updateStorageBanner(true);
+  showToast('已删除 ' + count + ' 道已掌握题目 ✓');
 }
 
 /* ════════════════════ 初始化 ════════════════════ */
@@ -854,13 +889,18 @@ function init() {
   bindListEvents();
   bindFilterEvents();
 
-  /* PWA自修复：保存当前访问地址，帮助用户重新安装 */
+  /* Bug#21修复：urlBar 只在 PWA standalone 模式下显示（非 standalone 不展示地址栏提示） */
+  /* Bug#23修复：去掉重复的 urlBar 代码块，合并为一处，并加 standalone 判断 */
   var origin = window.location.origin;
   try { localStorage.setItem('pwa_last_origin', origin); } catch(e) {}
-  var urlBar = document.getElementById('pwa-url-bar');
-  if (urlBar) {
-    urlBar.style.display = 'block';
-    document.getElementById('pwa-url-text').textContent = origin + '/wrong-questions-app.html';
+  var isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+  if (isStandalone) {
+    var urlBar = document.getElementById('pwa-url-bar');
+    if (urlBar) {
+      urlBar.style.display = 'block';
+      document.getElementById('pwa-url-text').textContent = origin + '/wrong-questions-app.html';
+    }
   }
 
   /* Bug#20修复：启动时检测存储是否接近满，若接近则主动展示清理横幅 */
@@ -873,11 +913,6 @@ function init() {
       }
     } catch(e) {}
   })();
-  var urlBar = document.getElementById('pwa-url-bar');
-  if (urlBar) {
-    urlBar.style.display = 'block';
-    document.getElementById('pwa-url-text').textContent = origin + '/wrong-questions-app.html';
-  }
 
   /* Bug#5修复：弹窗内的答题按钮统一走事件委托 */
   document.getElementById('modal-body').addEventListener('click', function(e) {
