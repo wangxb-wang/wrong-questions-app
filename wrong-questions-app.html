@@ -223,6 +223,20 @@ select.form-input { padding-right: 28px; }
   border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 12px;
   font-size: 12px; color: var(--warning); display: none;
 }
+/* ─── Storage banner (全局，在 list 页顶部显示) ─── */
+#storage-banner {
+  background: var(--warning-light); border: 1px solid var(--warning);
+  border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 10px;
+  font-size: 12px; color: var(--warning); display: none;
+  line-height: 1.6;
+}
+#storage-banner .banner-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+#storage-banner .banner-btn {
+  padding: 5px 12px; border-radius: 20px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--warning); background: white; color: var(--warning);
+  font-family: inherit; -webkit-appearance: none; appearance: none; touch-action: manipulation;
+}
+#storage-banner .banner-btn.danger { border-color: var(--danger); color: var(--danger); }
 </style>
 </head>
 <body>
@@ -244,6 +258,14 @@ select.form-input { padding-right: 28px; }
 
 <!-- 错题列表页 -->
 <div class="page active" id="page-list">
+  <!-- Bug#20修复：存储不足横幅在列表页全局可见，并提供一键清理操作 -->
+  <div id="storage-banner">
+    <strong>⚠️ 存储空间不足</strong>，无法添加新题目。
+    <div class="banner-actions">
+      <button class="banner-btn" onclick="cleanMasteredImages()">🧹 清理已掌握题图片</button>
+      <button class="banner-btn danger" onclick="deleteMasteredQuestions()">🗑️ 删除所有已掌握题</button>
+    </div>
+  </div>
   <div class="filter-bar" id="filter-bar"></div>
   <div id="wq-list"></div>
 </div>
@@ -350,16 +372,41 @@ function loadData() {
 }
 
 /* Bug#4 & Bug#8 修复：saveData 先保存，失败则回滚，返回是否成功 */
+/* Bug#20修复：同步更新全局 storage-banner，并显示存储占用量 */
+function getStorageUsageKB() {
+  try {
+    var used = 0;
+    for (var k in localStorage) {
+      if (localStorage.hasOwnProperty(k)) used += (localStorage[k].length + k.length) * 2;
+    }
+    return Math.round(used / 1024);
+  } catch(e) { return 0; }
+}
+
+function updateStorageBanner(hasError) {
+  var banner = document.getElementById('storage-banner');
+  var warn   = document.getElementById('storage-warn');
+  if (!banner) return;
+  if (hasError) {
+    var usedKB = getStorageUsageKB();
+    var usedStr = usedKB >= 1024 ? (usedKB / 1024).toFixed(1) + ' MB' : usedKB + ' KB';
+    banner.querySelector('strong').textContent = '⚠️ 存储空间不足（已用约 ' + usedStr + '）';
+    banner.style.display = 'block';
+    if (warn) warn.style.display = 'block';
+  } else {
+    banner.style.display = 'none';
+    if (warn) warn.style.display = 'none';
+  }
+}
+
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(questions));
-    var el = document.getElementById('storage-warn');
-    if (el) el.style.display = 'none';
+    updateStorageBanner(false);
     return true;
   } catch(e) {
-    var el2 = document.getElementById('storage-warn');
-    if (el2) el2.style.display = 'block';
-    showToast('存储空间不足！请删除已攻克题目或减少图片');
+    updateStorageBanner(true);
+    showToast('存储空间不足！请点击列表页顶部的清理按钮');
     return false;
   }
 }
@@ -769,6 +816,38 @@ function fixHeaderHeight() {
   document.documentElement.style.setProperty('--header-h', h + 'px');
 }
 
+/* ════════════════════ 存储清理工具（Bug#20修复）════════════════════ */
+/* 仅清理已掌握题目的图片，保留题目本身 */
+function cleanMasteredImages() {
+  var count = 0;
+  questions.forEach(function(q) {
+    if ((q.mastered || q.removed) && q.image) {
+      q.image = null;
+      count++;
+    }
+  });
+  if (count === 0) { showToast('已掌握题目中没有图片可清理'); return; }
+  var ok = saveData();
+  if (ok) {
+    renderList();
+    showToast('已清理 ' + count + ' 张图片，存储空间已释放 ✓');
+  }
+}
+
+/* 删除所有已掌握题目 */
+function deleteMasteredQuestions() {
+  var count = questions.filter(function(q) { return q.mastered || q.removed; }).length;
+  if (count === 0) { showToast('没有已掌握的题目'); return; }
+  if (!confirm('确定删除全部 ' + count + ' 道已掌握题目？此操作不可恢复。')) return;
+  questions = questions.filter(function(q) { return !q.mastered && !q.removed; });
+  var ok = saveData();
+  if (ok) {
+    renderList();
+    updateHeaderSub();
+    showToast('已删除 ' + count + ' 道已掌握题目 ✓');
+  }
+}
+
 /* ════════════════════ 初始化 ════════════════════ */
 function init() {
   loadData();
@@ -778,6 +857,22 @@ function init() {
   /* PWA自修复：保存当前访问地址，帮助用户重新安装 */
   var origin = window.location.origin;
   try { localStorage.setItem('pwa_last_origin', origin); } catch(e) {}
+  var urlBar = document.getElementById('pwa-url-bar');
+  if (urlBar) {
+    urlBar.style.display = 'block';
+    document.getElementById('pwa-url-text').textContent = origin + '/wrong-questions-app.html';
+  }
+
+  /* Bug#20修复：启动时检测存储是否接近满，若接近则主动展示清理横幅 */
+  (function checkStorageOnStart() {
+    try {
+      var usedKB = getStorageUsageKB();
+      /* localStorage 通常限额 5MB(5120KB)，超过80%（4096KB）主动警告 */
+      if (usedKB > 4096) {
+        updateStorageBanner(true);
+      }
+    } catch(e) {}
+  })();
   var urlBar = document.getElementById('pwa-url-bar');
   if (urlBar) {
     urlBar.style.display = 'block';
