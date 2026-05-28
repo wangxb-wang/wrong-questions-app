@@ -538,6 +538,8 @@ function markCorrect(id) {
   /* Bug#11修复：已掌握的题目不再累加，避免误导 */
   if (q.mastered) { showToast('这道题已掌握 ✓'); return; }
   q.correctCount++;
+  /* Bug#31修复：防御旧数据可能缺少 history 字段 */
+  if (!q.history) q.history = [];
   q.history.push({ time: Date.now(), correct: true });
   if (q.history.length > 50) q.history = q.history.slice(-50); /* Bug#24修复：history最多保留50条，避免无限膨胀 */
   if (q.correctCount >= 3) {
@@ -558,6 +560,8 @@ function markWrong(id) {
   q.correctCount = 0;
   q.mastered = false;
   q.solvedAt = undefined; /* Bug#13修复：答错时重置solvedAt，重新掌握时用新时间戳 */
+  /* Bug#31修复：防御旧数据可能缺少 history 字段 */
+  if (!q.history) q.history = [];
   q.history.push({ time: Date.now(), correct: false });
   if (q.history.length > 50) q.history = q.history.slice(-50); /* Bug#24修复：history最多保留50条 */
   showToast('没关系，继续加油！');
@@ -568,8 +572,21 @@ function markWrong(id) {
 
 function deleteQuestion(id) {
   if (!confirm('确定要删除这道错题吗？')) return;
-  questions = questions.filter(function(x) { return x.id !== id; });
-  saveData(); renderList(); showToast('已删除');
+  /* Bug#30修复：saveData失败时回滚，与saveQuestion/cleanMasteredImages/deleteMasteredQuestions保持一致 */
+  var idx = -1;
+  for (var i = 0; i < questions.length; i++) {
+    if (questions[i].id === id) { idx = i; break; }
+  }
+  if (idx === -1) return;
+  var removed = questions.splice(idx, 1)[0];
+  var ok = saveData();
+  if (!ok) {
+    questions.splice(idx, 0, removed); /* 回滚：插回原位 */
+    showToast('删除失败，存储空间不足');
+    return;
+  }
+  renderList();
+  showToast('已删除');
   updateHeaderSub(); /* Bug#16修复：删除后头部统计需刷新 */
 }
 
